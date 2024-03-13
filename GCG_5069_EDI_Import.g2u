@@ -1,0 +1,836 @@
+Program.Sub.Preflight.Start
+V.Global.sText.Declare(String)
+V.Global.iOrder.Declare(Long)
+V.Global.sFilePath.Declare(String)
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+'EDI Import Voestalpine GCG_5069_EDI_Import
+'DRH 4/29/2018
+
+
+F.Intrinsic.Control.CallSub("Select_File")
+
+F.Intrinsic.Control.Catch
+    F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+    F.Intrinsic.UI.Msgbox(V.Local.sError)
+    F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.Select_File.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+V.Local.sExcel.Declare(String)
+V.Local.sRet.Declare(String)
+V.Local.iUBound.Declare(Long)
+
+F.Intrinsic.UI.ShowOpenFileDialog("","","",V.Local.sRet)
+' if cancelled, end script, otherwise continue....
+F.Intrinsic.Control.If(V.local.sRet,=,"***CANCEL***")
+	F.Intrinsic.UI.Msgbox("Choose a File")
+	Function.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.Else
+	F.Intrinsic.String.Split(V.local.sRet.Trim, ".", V.Local.sExcel)
+	V.Local.iUbound.Set(V.Local.sExcel.UBound)
+	F.Intrinsic.Control.If(V.Local.sExcel(v.Local.iUbound).Trim, =, "xls", "OR", V.Local.sExcel(V.Local.iUbound).Trim, =, "xlsx")
+		'DR H   7/3/2018 Allow User to set location of text file
+		F.Intrinsic.UI.ShowSaveFileDialog("","txt|*.txt",V.Global.sFilePath)
+		'We have a good file extensionSelect_File
+		'read in the excel file
+		F.Intrinsic.Control.CallSub("Create_Table", "sRet", V.local.sRet)
+	F.Intrinsic.Control.Else
+		F.Intrinsic.UI.Msgbox("The file selected is not an excel file!", "Error")
+		Function.Intrinsic.Control.ExitSub
+	Function.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+    F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+    F.Intrinsic.UI.Msgbox(V.Local.sError)
+    F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndTry		
+Program.Sub.Select_File.End
+
+Program.Sub.Create_Table.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+V.Local.sText.Declare(String)
+V.Local.sFields.Declare(String)
+V.Local.sTypes.Declare(String)
+
+Function.Intrinsic.UI.InvokeWaitDialog("Loading Document...", "Please Wait", 0)
+Function.Intrinsic.UI.ChangeWaitStatus ("Reading File...", 30)
+F.Automation.MSExcel.ReadSpreadsheet(V.Args.sRet, V.Local.sText)
+'need to split and read TAB RFC_ZMRPLISTS 
+F.Intrinsic.String.Split(V.Local.sText, "&^&", V.Local.sText)
+' create datatable from string
+V.Local.sFields.Set("1*!*2*!*3*!*4*!*5*!*6*!*Item_Promise_Date*!*8*!*PO_NUMBER*!*PO_Line*!*11*!*12*!*Buyer_Part_Number*!*14*!*15*!*NO_OfLines*!*17*!*18*!*19*!*20*!*21*!*22*!*23*!*24*!*25*!*26*!*27*!*28*!*29*!*30*!*31*!*32*!*33*!*34*!*35*!*36*!*37*!*38")
+V.Local.sTypes.Set("String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String")
+Function.Data.DataTable.CreateFromString("EDI_1", V.Local.sText(3), V.Local.sFields, V.Local.sTypes, "*!*", "$!$", TRUE)
+'delete top 2 rows
+'F.Data.DataTable.DeleteRow("EDI_1", 0)		
+F.Data.DataTable.DeleteRow("EDI_1", 0)
+
+'add expression column for user Field 1
+F.Data.DataTable.AddExpressionColumn("EDI_1", "850-A-USER1", "String", "IIF(LEN([11])  < 4, [PO_NUMBER]+'-'+[PO_Line]+'-'+[11], [PO_NUMBER]+'-'+[PO_Line]+[11] )")
+F.Data.DataTable.AddExpressionColumn("EDI_1", "300", "String", "SubString(PO_NUMBER, 1, 3)")
+
+
+F.Data.DataView.Create("EDI_1", "EDI_1_V", 22, "[300] = '300' ", "")	
+Function.Data.DataView.ToDataTable("EDI_1", "EDI_1_V", "EDI", TRUE)
+		
+F.Intrinsic.Control.CallSub(Add_Columns)		
+			
+F.Intrinsic.Control.Catch
+    F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+    F.Intrinsic.UI.Msgbox(V.Local.sError)
+    F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndTry		
+		
+Program.Sub.Create_Table.End
+
+Program.Sub.Add_Columns.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+'HEADER INFO
+F.Data.DataTable.AddColumn("EDI","Buyer", "String", "RTISHEET")
+'F.Data.DataTable.AddColumn("EDI","PO_NUMBER", "String")
+'F.Data.DataTable.AddColumn("EDI","PO_Line", "String")
+F.Data.DataTable.AddColumn("EDI","Change_Order", "String")
+F.Data.DataTable.AddColumn("EDI","PO_Date", "String")
+F.Data.DataTable.AddColumn("EDI","Ship_Date", "String")
+F.Data.DataTable.AddColumn("EDI","Ship_To_Code", "String")
+F.Data.DataTable.AddColumn("EDI","Terms_Due_Date", "String")
+F.Data.DataTable.AddColumn("EDI","Change_By_Date", "String")
+F.Data.DataTable.AddColumn("EDI","Release_Number", "String")
+F.Data.DataTable.AddColumn("EDI","Release_Start_Date", "String")
+F.Data.DataTable.AddColumn("EDI","Release_End_Date", "String")
+F.Data.DataTable.AddColumn("EDI","Hold_Type", "String")
+F.Data.DataTable.AddColumn("EDI","Change_Type", "String")
+F.Data.DataTable.AddColumn("EDI","Transaction", "String")
+F.Data.DataTable.AddColumn("EDI","Trading_Partner", "String")
+F.Data.DataTable.AddColumn("EDI","Price_From_Quote", "String")
+F.Data.DataTable.AddColumn("EDI","Accum_RCPT", "String")
+F.Data.DataTable.AddColumn("EDI","Last_Received_QTY", "String")
+F.Data.DataTable.AddColumn("EDI","Last_Received_Date", "String")
+F.Data.DataTable.AddColumn("EDI","855_Flag", "String")
+F.Data.DataTable.AddColumn("EDI","Filer_355", "String")
+F.Data.DataTable.AddColumn("EDI","Conversion_Flag", "String")
+
+'SHIP TO INFO
+'''F.Data.DataTable.AddColumn("EDI","Buyer", "String")
+'''F.Data.DataTable.AddColumn("EDI","PO_NUMBER", "String")
+'''F.Data.DataTable.AddColumn("EDI","PO_Line", "String")
+'''F.Data.DataTable.AddColumn("EDI","Change_Order", "String")
+'F.Data.DataTable.AddColumn("EDI","Ship_To_Name", "String")
+'F.Data.DataTable.AddColumn("EDI","Ship_To_ADRS1", "String")
+F.Data.DataTable.AddColumn("EDI","Ship_To_ADRS2", "String")
+F.Data.DataTable.AddColumn("EDI","Ship_To_ADRS3", "String")
+F.Data.DataTable.AddColumn("EDI","Ship_To_ADRS4", "String")
+F.Data.DataTable.AddColumn("EDI","Ship_To_ADRS5", "String")
+'F.Data.DataTable.AddColumn("EDI","Ship_To_City", "String")
+'F.Data.DataTable.AddColumn("EDI","Ship_To_State", "String")
+'F.Data.DataTable.AddColumn("EDI","Ship_To_Zip", "String")
+'F.Data.DataTable.AddColumn("EDI","Ship_To_Country", "String")
+'F.Data.DataTable.AddColumn("EDI","Ship_To_Attn", "String")
+'F.Data.DataTable.AddColumn("EDI","Ship_To_Intl_Adrs_YN", "String")
+F.Data.DataTable.AddColumn("EDI","C_Filler_110", "String")
+'''F.Data.DataTable.AddColumn("EDI","Conversion_Flag", "String")
+
+'LINE INFO
+'''F.Data.DataTable.AddColumn("EDI","Buyer", "String")
+'''F.Data.DataTable.AddColumn("EDI","PO_NUMBER", "String")
+'F.Data.DataTable.AddColumn("EDI","PO_Line", "String")
+'''F.Data.DataTable.AddColumn("EDI","Change_Order", "String")
+'F.Data.DataTable.AddColumn("EDI","Buyer_Part_Number", "String")
+F.Data.DataTable.AddColumn("EDI","Buyer_Part_Location", "String")
+F.Data.DataTable.AddColumn("EDI","Order_QTY", "String", "000000010000")
+F.Data.DataTable.AddColumn("EDI","UOM", "String")
+F.Data.DataTable.AddColumn("EDI","Price", "String")
+F.Data.DataTable.AddColumn("EDI","Part_Description", "String")
+F.Data.DataTable.AddColumn("EDI","Bulk_Number", "String")
+F.Data.DataTable.AddColumn("EDI","Bin_Number", "String")
+'F.Data.DataTable.AddColumn("EDI","Accum_RCPT", "String")
+F.Data.DataTable.AddColumn("EDI","In_Transit", "String")
+F.Data.DataTable.AddColumn("EDI","Last_Recpt_QTY", "String")
+F.Data.DataTable.AddColumn("EDI","Last_Recpt_Date", "String")
+F.Data.DataTable.AddColumn("EDI","Write_Inventory", "String")
+F.Data.DataTable.AddColumn("EDI","Price_Check_Dec", "String")
+F.Data.DataTable.AddColumn("EDI","Long_Part_Number", "String")
+F.Data.DataTable.AddColumn("EDI","Multi_QTY", "String")
+F.Data.DataTable.AddColumn("EDI","MQD_Due_Date", "String")
+F.Data.DataTable.AddColumn("EDI","Order_Type", "String")
+'F.Data.DataTable.AddColumn("EDI","Ship_To_Code", "String")
+F.Data.DataTable.AddColumn("EDI","Old_Ship_Code", "String")
+'''F.Data.DataTable.AddColumn("EDI","Hold_Type", "String")
+F.Data.DataTable.AddColumn("EDI","Info1", "String")
+F.Data.DataTable.AddColumn("EDI","Info2", "String")
+'F.Data.DataTable.AddColumn("EDI","Change_Type", "String")
+'F.Data.DataTable.AddColumn("EDI","Transaction", "String")
+F.Data.DataTable.AddColumn("EDI","User1", "String")
+F.Data.DataTable.AddColumn("EDI","User2", "String")
+F.Data.DataTable.AddColumn("EDI","User3", "String")
+F.Data.DataTable.AddColumn("EDI","User4", "String")
+'F.Data.DataTable.AddColumn("EDI","Item_Promise_Date", "String")
+F.Data.DataTable.AddColumn("EDI","Line_Type", "String")
+F.Data.DataTable.AddColumn("EDI","Negative_QTY_Flag", "String")
+F.Data.DataTable.AddColumn("EDI","Trigger_Part_Flag", "String")
+F.Data.DataTable.AddColumn("EDI","Last_Ship_ID", "String")
+'''F.Data.DataTable.AddColumn("EDI","Conversion_Flag", "String")
+
+'LINE NOTES INFO
+'''F.Data.DataTable.AddColumn("EDI","Buyer", "String")
+'''F.Data.DataTable.AddColumn("EDI","PO_NUMBER", "String")
+'''F.Data.DataTable.AddColumn("EDI","PO_Line", "String")
+'''F.Data.DataTable.AddColumn("EDI","Change_Order", "String")
+'F.Data.DataTable.AddColumn("EDI","Item_Notes", "String")
+
+F.Intrinsic.Control.CallSub(Create_File)
+
+F.Intrinsic.Control.Catch
+    F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+    F.Intrinsic.UI.Msgbox(V.Local.sError)
+    F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndTry	
+Program.Sub.Add_Columns.End
+
+Program.Sub.Create_File.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+Function.Intrinsic.UI.ChangeWaitStatus("Creating File...", 50)
+
+V.Local.sTemp.Declare(String)
+V.Local.sHeader.Declare(String)
+V.Local.sShip.Declare(String)
+V.Local.sLines.Declare(String)
+V.Local.sNotes.Declare(String)
+V.Local.sText.Declare(String)
+V.Local.sFilter.Declare(String)
+V.Local.sPOLine.Declare(String)
+V.Local.sPrice1.Declare(String)
+V.Local.sPrice2.Declare(String)
+V.Local.sQty1.Declare(String)
+V.Local.sQTY2.Declare(String)
+V.Local.sFilePath.Declare(String)
+V.Local.iOrder.Declare(Long)
+V.Local.iC.Declare(Long)
+
+F.Intrinsic.Control.For(V.Global.iOrder, 0, V.DataTable.EDI.RowCount--, 1)
+	F.Intrinsic.Control.CallSub(Header)
+	F.Intrinsic.Control.CallSub(Header_A)
+	F.Intrinsic.Control.CallSub(Line)
+F.Intrinsic.Control.Next(V.Global.iOrder)
+
+F.Intrinsic.Control.CallSub(Upload)
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+         F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.Create_File.End
+
+Program.Sub.Upload.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+V.Local.sFilePath.Declare(String)
+
+Function.Intrinsic.UI.ChangeWaitStatus("Uploading...", 75)
+'Add new line
+F.Intrinsic.String.Build("{0}{1}", V.Global.sText, V.Ambient.NewLine, V.Global.sText)
+'  RTIMRP.TXT
+F.Intrinsic.String.Build("{0}\RTIMRP.TXT{2}", v.Caller.FilesDir, v.Caller.Terminal,v.Caller.CompanyCode, V.Local.sFilePath)
+F.Intrinsic.File.String2File(V.Global.sFilePath, V.Global.sText)
+
+F.Intrinsic.UI.CloseWaitDialog
+F.Global.General.CallWrapperSync(50,"ORD040GI")
+F.Global.General.CallWrapperSync(50,"ORD045GI")
+F.Intrinsic.Control.CallSub(Unload)
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+         F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.Upload.End
+
+Program.Sub.Unload.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+F.Intrinsic.Control.End
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+         F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.Unload.End
+
+Program.Sub.Header.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+V.Local.sHeader.Declare(String)
+V.Local.sTemp.Declare(String)
+
+'V.Global.iOrder
+	'Create Header
+	'Buyer ID (35)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Buyer!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 35, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}", V.Local.sTemp, V.Local.sHeader)
+	
+	'PO Number (15)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).850-A-USER1!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 15, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Line Number For Header = '000' (3)
+	V.Local.sTemp.Set("000")
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Change Order Y/N (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Change_Order!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'PO Date CCYYMMDD (8)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).PO_Date!FieldVal)
+	F.Intrinsic.String.Format(V.Local.sTemp, "YYYYMMDD", V.Local.sTemp)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Ship Date CCYYMMDD (8)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_Date!FieldVal)
+	F.Intrinsic.String.Format(V.Local.sTemp, "YYYYMMDD", V.Local.sTemp)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Ship To Code (17)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_Code!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 17, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Terms Discount Due Date (8)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Terms_Due_Date!FieldVal)
+	F.Intrinsic.String.Format(V.Local.sTemp, "YYYYMMDD", V.Local.sTemp)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Change By Date Y/N (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Change_By_Date!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Release Number (25)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Release_Number!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 25, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Release Start Date CCYYMMDD (8)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Release_Start_Date!FieldVal)
+	F.Intrinsic.String.Format(V.Local.sTemp, "YYYYMMDD", V.Local.sTemp)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Release End Date CCYYMMDD (8)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Release_End_Date!FieldVal)
+	F.Intrinsic.String.Format(V.Local.sTemp, "YYYYMMDD", V.Local.sTemp)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Hold Type (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Hold_Type!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Change Type (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Change_Type!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Transaction (3)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Transaction!FieldVal)
+	F.Intrinsic.String.RPad("830", " ", 3, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Trading Partner CD (3)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Trading_Partner!FieldVal)
+	F.Intrinsic.String.RPad("RTI", " ", 3, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Price From Quote (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Price_From_Quote!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Accum RCPT (10)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Accum_RCPT!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, "0", 10, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Last Received QTY (10)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Last_Received_QTY!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, "0", 10, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Last Received Date CCYYMMDD (8)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Last_Received_Date!FieldVal)
+	F.Intrinsic.String.Format(V.Local.sTemp, "YYYYMMDD", V.Local.sTemp)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'855 Flag Y/N (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).855_Flag!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Filler (335)
+	V.Local.sTemp.Set("")
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 335, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Record Type: Header = H (1)
+	F.Intrinsic.String.RPad(V.Local.sHeader, " ", 510, V.Local.sHeader)
+	V.Local.sTemp.Set("H")
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'Conversion Flag (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Conversion_Flag!FieldVal)
+	V.Local.sTemp.Set("")
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+	
+	'SAVE HEADER TO FILE
+	Function.Intrinsic.Control.If(V.Global.sText, =, "")
+		V.Global.sText.Set(V.Local.sHeader)
+	Function.Intrinsic.Control.Else
+		F.Intrinsic.String.Build("{0}{1}{2}",V.Global.sText,V.Ambient.NewLine,V.Local.sHeader, V.Global.sText)
+		Function.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+         F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndTry
+Program.Sub.Header.End
+
+Program.Sub.Header_A.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+V.Local.sHeader.Declare(String)
+V.Local.sTemp.Declare(String)
+
+'Create Header A line
+'Buyer ID (35) @1
+V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Buyer!FieldVal)
+F.Intrinsic.String.RPad(V.Local.sTemp, " ", 35, V.Local.sTemp)
+F.Intrinsic.String.Build("{0}", V.Local.sTemp, V.Local.sHeader)
+
+'PO Number (15) @36
+V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).850-A-USER1!FieldVal)
+F.Intrinsic.String.RPad(V.Local.sTemp, " ", 15, V.Local.sTemp)
+F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+
+'Line Number For Header = '000' (3) @51
+V.Local.sTemp.Set("000")
+F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+
+'850-A-USER1 For Header (30) @61
+F.Intrinsic.String.RPad(V.Local.sHeader, " ", 60, V.Local.sHeader)
+V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).850-A-USER1!FieldVal)
+F.Intrinsic.String.RPad(V.Local.sTemp, " ", 15, V.Local.sTemp)
+F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+
+'Record Type: Header =A (1) @511
+F.Intrinsic.String.RPad(V.Local.sHeader, " ", 510, V.Local.sHeader)
+V.Local.sTemp.Set("A")
+F.Intrinsic.String.Build("{0}{1}", V.Local.sHeader, V.Local.sTemp, V.Local.sHeader)
+'512 long total
+F.Intrinsic.String.RPad(V.Local.sHeader, " ", 512, V.Local.sHeader)
+
+
+'SAVE  TO FILE
+F.Intrinsic.String.Build("{0}{1}{2}",V.Global.sText,V.Ambient.NewLine,V.Local.sHeader, V.Global.sText)
+
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+         F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndTry
+Program.Sub.Header_A.End
+
+Program.Sub.Line.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+V.Local.sLines.Declare(String)
+V.Local.sTemp.Declare(String)
+V.Local.sPOLine.Declare(String)
+V.Local.iEach.Declare(Long)
+
+'F.Intrinsic.Control.For(V.Local.iC, 0,Variable.DataView.UP!UP_V.RowCount--, 1)	
+V.Local.sPOLine.Set("000")
+F.Intrinsic.Control.For(V.Local.iEach, 1,V.DataTable.EDI(V.Global.iOrder).NO_OfLines!FieldVal, 1)	
+	V.Local.sLines.Set("")
+	'CREATE LINES
+	'Buyer ID (35)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Buyer!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 35, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'PO Number (15)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).850-A-USER1!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 15, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Line NBR begins with one (3)
+		F.Intrinsic.Math.Add(V.Local.sPOLINE, 1, V.Local.sPOLine)
+		F.Intrinsic.String.LPad(V.Local.sPOLine, "0", 3, V.Local.sPOLine)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sPOLine, V.Local.sLines)
+		
+	'change order (1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Change_Order!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Buyer Part Number (20)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Buyer_Part_Number!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 20, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Buyer Part Location (2)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Buyer_Part_Location!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 2, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+	
+	'Order QTY (12)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Order_QTY!FieldVal)
+'		F.Intrinsic.String.Split(V.Local.sTemp, ".", V.Local.sTemp)
+'		F.Intrinsic.String.LPad(V.Local.sTemp(0), "0", 8, V.Local.sQTY1)
+'		Function.Intrinsic.Control.If(V.Local.sTemp(1), =, "OOB")
+'			V.Local.sQTY2.Set("0000")
+'		Function.Intrinsic.Control.Else
+'			F.Intrinsic.String.RPad(V.Local.sTemp(1), "0", 4, V.Local.sQTY2)
+'		Function.Intrinsic.Control.EndIf
+'		F.Intrinsic.String.Build("{0}{1}", V.Local.sQTY1, V.Local.sQTY2, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'UOM (2)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).UOM!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 2, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Price (13)
+''		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Price!FieldVal)
+''		V.Local.sTemp.Set("0")
+''		F.Intrinsic.String.Split(V.Local.sTemp, ".", V.Local.sTemp)
+''		F.Intrinsic.String.LPad(V.Local.sTemp(0), "0", 8, V.Local.sPrice1)
+''		Function.Intrinsic.Control.If(V.Local.sTemp(1), =, "OOB")
+''			V.Local.sPrice2.Set("00000")
+''		Function.Intrinsic.Control.Else
+''			F.Intrinsic.String.RPad(V.Local.sTemp(1), "0", 5, V.Local.sPrice2)
+''		Function.Intrinsic.Control.EndIf
+''		F.Intrinsic.String.Build("{0}{1}", V.Local.sPrice1, V.Local.sPrice2, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, "             ", V.Local.sLines)
+		
+	'Part Description (30)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Part_Description!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 30, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Bulk Number (30)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Bulk_Number!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 30, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Bin Number (30)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Bin_Number!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 30, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Accum Recpt (8)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Accum_RCPT!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'In Transit (8)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).In_Transit!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Last Recpt QTY (8)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Last_Recpt_QTY!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Last Recpt Date (8)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Last_Recpt_Date!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'PO Line Number (3)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).PO_Line!FieldVal)
+		F.Intrinsic.String.LPad(V.Local.sTemp, "0", 3, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Write Inventory (1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Write_Inventory!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Price Check Dec (1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Price_Check_Dec!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Long Part Number (35)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Long_Part_Number!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 35, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Multi QTY (1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Multi_QTY!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'MQD Due Date (8)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).MQD_Due_Date!FieldVal)
+		F.Intrinsic.String.Format(V.Local.sTemp, "YYYYMMDD", V.Local.sTemp)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Order Type (1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Order_Type!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Ship to code (17)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_Code!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 17, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Old Ship to Code (17)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Old_Ship_Code!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 17, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Hold Type (1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Hold_Type!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Info 1 (20)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Info1!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 20, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Info 2 (20)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Info2!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 20, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Change Type (1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Change_Type!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Transaction (3)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Transaction!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 3, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'User 1 (30)
+'		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).User1!FieldVal)
+		v.Local.sTemp.Set(V.Local.sPOLine)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 30, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'User 2 (30)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).User2!FieldVal)
+'		v.Local.sTemp.Set(V.Local.sPOLine)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 30, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'User 3 (30)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).User3!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 30, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'User 4 (30)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).User4!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 30, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Line Item Promise date (8)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Item_Promise_Date!FieldVal)
+		F.Intrinsic.String.Format(V.Local.sTemp, "YYYYMMDD", V.Local.sTemp)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 8, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Line Type(1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Line_Type!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Negative QTY Flag (1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Negative_QTY_Flag!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Trigger Part Flag (1)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Trigger_Part_Flag!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Last Shipment ID (25)
+		V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Last_Ship_ID!FieldVal)
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 25, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Record Type = 1 (1)
+		V.Local.sTemp.Set("1")
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+	'Conversion Flag (1)
+		V.Local.sTemp.Set("")
+		F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+		F.Intrinsic.String.Build("{0}{1}", V.Local.sLines, V.Local.sTemp, V.Local.sLines)
+		
+		'SAVE LINE TO TO FILE
+		F.Intrinsic.String.Build("{0}{1}{2}", V.Global.sText,V.Ambient.NewLine,V.Local.sLines, V.Global.sText)
+	
+	F.Intrinsic.Control.Next(V.Local.iEach)
+	'F.Intrinsic.Control.Next(V.Local.iC)		
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+         F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndTry
+
+Program.Sub.Line.End
+
+Program.Sub.Ship_To.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+V.Local.sShip.Set("")
+	
+	'CREATE SHIP TO
+	'Buyer ID (35)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Buyer!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 35, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}", V.Local.sTemp, V.Local.sShip)
+	
+	'PO Number (15)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).850-A-USER1!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 15, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Line Number For Ship To = '000' (3)
+	V.Local.sTemp.Set("000")
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Change Order Y/N (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Change_Order!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_Name (40)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_Name!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 40, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_ADRS1 (40)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_ADRS1!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 40, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_ADRS2 (40)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_ADRS2!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 40, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_ADRS3 (40)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_ADRS3!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 40, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_ADRS4 (40)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_ADRS4!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 40, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_ADRS5 (40)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_ADRS5!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 40, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_City (25)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_City!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 25, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_State (2)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_State!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 2, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_Zip (13)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_Zip!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 13, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_Country (25)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_Country!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 25, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_Attn (40)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_Attn!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 40, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Ship_To_Intl_Adrs_YN (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Ship_To_Intl_Adrs_YN!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'C_Filler_110 (110)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).C_Filler_110!FieldVal)
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 110, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'C_Record_Type (1)
+	V.Local.sTemp.Set("C")
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'Conversion Flag (1)
+	V.Local.sTemp.Set(V.DataTable.EDI(V.Global.iOrder).Conversion_Flag!FieldVal)
+	V.Local.sTemp.Set("")
+	F.Intrinsic.String.RPad(V.Local.sTemp, " ", 1, V.Local.sTemp)
+	F.Intrinsic.String.Build("{0}{1}", V.Local.sShip, V.Local.sTemp, V.Local.sShip)
+	
+	'SAVE SHIP TO TO FILE
+	F.Intrinsic.String.Build("{0}{1}{2}", V.Local.sText,V.Ambient.NewLine,V.Local.sShip, V.Local.sText)
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+         F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndTry
+Program.Sub.Ship_To.End
